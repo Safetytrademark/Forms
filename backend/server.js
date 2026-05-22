@@ -63,23 +63,20 @@ app.post('/submit', upload.fields([
     console.log(`✓ [${new Date().toISOString()}] Email sent`);
     console.log(`  ${foremanName} | ${project} | ${submissionType} | ${photos.length} photo(s)`);
 
-    // Optional: send copy to CSO
+    // Fire-and-forget CSO email (does not block the response)
     if (csoEmail) {
-      try {
-        await sendCSOEmail({
-          csoEmail,
-          csoName: csoName || '',
-          foremanName,
-          project,
-          submissionType,
-          date,
-          pdfBuffer: pdfFile?.buffer || null,
-          pdfName
-        });
-        console.log(`✓ CSO email sent to ${csoEmail}`);
-      } catch (csoErr) {
-        console.warn(`⚠ CSO email failed (non-blocking): ${csoErr.message}`);
-      }
+      sendCSOEmail({
+        csoEmail,
+        csoName: csoName || '',
+        foremanName,
+        project,
+        submissionType,
+        date,
+        pdfBuffer: pdfFile?.buffer || null,
+        pdfName
+      })
+        .then(() => console.log(`✓ CSO email sent to ${csoEmail}`))
+        .catch(err => console.warn(`⚠ CSO email failed: ${err.message}`));
     }
 
     res.json({
