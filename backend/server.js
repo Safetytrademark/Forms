@@ -2,7 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const multer = require('multer');
 const cors = require('cors');
-const { sendSafetySubmission, testConnection } = require('./mailer');
+const { sendSafetySubmission, sendCSOEmail, testConnection } = require('./mailer');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -31,7 +31,7 @@ app.post('/submit', upload.fields([
   { name: 'photos', maxCount: 15 }
 ]), async (req, res) => {
   try {
-    const { project, submissionType, foremanName, date, workersOnSite, formFields } = req.body;
+    const { project, submissionType, foremanName, date, workersOnSite, formFields, csoEmail, csoName } = req.body;
 
     if (!project || !submissionType || !foremanName || !date) {
       return res.status(400).json({ error: 'Missing required fields: project, submissionType, foremanName, date' });
@@ -62,6 +62,25 @@ app.post('/submit', upload.fields([
 
     console.log(`✓ [${new Date().toISOString()}] Email sent`);
     console.log(`  ${foremanName} | ${project} | ${submissionType} | ${photos.length} photo(s)`);
+
+    // Optional: send copy to CSO
+    if (csoEmail) {
+      try {
+        await sendCSOEmail({
+          csoEmail,
+          csoName: csoName || '',
+          foremanName,
+          project,
+          submissionType,
+          date,
+          pdfBuffer: pdfFile?.buffer || null,
+          pdfName
+        });
+        console.log(`✓ CSO email sent to ${csoEmail}`);
+      } catch (csoErr) {
+        console.warn(`⚠ CSO email failed (non-blocking): ${csoErr.message}`);
+      }
+    }
 
     res.json({
       success: true,

@@ -139,10 +139,83 @@ async function sendSafetySubmission({ foremanName, project, submissionType, date
   return { recipient, filesAttached: attachments.length };
 }
 
+async function sendCSOEmail({ csoEmail, csoName, foremanName, project, submissionType, date, pdfBuffer, pdfName }) {
+  const resend = getResend();
+
+  const greeting = csoName ? `Hi ${csoName},` : 'Hi,';
+  const formLabel = submissionType || 'Safety Form';
+
+  const html = `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  body{margin:0;padding:0;background:#f4f6f8;font-family:Arial,sans-serif}
+  .wrap{max-width:600px;margin:32px auto;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.12)}
+  .header{background:#1a2e4a;padding:28px 32px}
+  .header h1{margin:0;color:#fff;font-size:20px;font-weight:700}
+  .header p{margin:6px 0 0;color:#a8c4e0;font-size:13px}
+  .badge{display:inline-block;background:#e8f0fe;color:#1a2e4a;font-size:12px;font-weight:700;padding:4px 12px;border-radius:20px;margin-top:10px}
+  .body{padding:32px;color:#333;font-size:15px;line-height:1.6}
+  .body p{margin:0 0 16px}
+  .details{background:#f8f9fb;border-radius:6px;padding:16px 20px;margin:20px 0}
+  .details table{width:100%;border-collapse:collapse}
+  .details td{padding:5px 0;font-size:14px;color:#555}
+  .details td:first-child{font-weight:700;color:#333;width:100px}
+  .footer{background:#f4f6f8;padding:16px 32px;text-align:center;font-size:12px;color:#999}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="header">
+    <h1>Trademark Masonry</h1>
+    <p>Safety Documentation</p>
+    <span class="badge">${formLabel}</span>
+  </div>
+  <div class="body">
+    <p>${greeting}</p>
+    <p>Please see attached the <strong>Trademark Masonry ${formLabel}</strong> for <strong>${date}</strong>.</p>
+    <div class="details">
+      <table>
+        <tr><td>Project</td><td>${project}</td></tr>
+        <tr><td>Foreman</td><td>${foremanName}</td></tr>
+        <tr><td>Date</td><td>${date}</td></tr>
+      </table>
+    </div>
+    <p>If you have any questions do not hesitate to contact us.</p>
+    <p>Regards,<br><strong>Trademark Team</strong></p>
+  </div>
+  <div class="footer">Trademark Masonry &mdash; Safety Documentation System</div>
+</div>
+</body></html>`;
+
+  const attachments = [];
+  if (pdfBuffer) {
+    attachments.push({
+      filename: pdfName,
+      content: Buffer.from(pdfBuffer).toString('base64'),
+    });
+  }
+
+  const result = await resend.emails.send({
+    from: 'Trademark Safety <onboarding@resend.dev>',
+    to: [csoEmail],
+    reply_to: process.env.EMAIL_USER || 'safetytrademark@gmail.com',
+    subject: `Safety Form – ${formLabel} – ${project} (${date})`,
+    html,
+    attachments
+  });
+
+  if (result.error) {
+    throw new Error(result.error.message || 'Resend API error');
+  }
+
+  return result;
+}
+
 async function testConnection() {
   if (!process.env.RESEND_API_KEY) {
     throw new Error('RESEND_API_KEY not set');
   }
 }
 
-module.exports = { sendSafetySubmission, testConnection };
+module.exports = { sendSafetySubmission, sendCSOEmail, testConnection };
