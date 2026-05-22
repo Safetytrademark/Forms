@@ -1,7 +1,18 @@
 const { Resend } = require('resend');
+const nodemailer = require('nodemailer');
 
 function getResend() {
   return new Resend(process.env.RESEND_API_KEY);
+}
+
+function getGmailTransport() {
+  return nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+      user: process.env.EMAIL_USER,
+      pass: process.env.EMAIL_PASS,
+    },
+  });
 }
 
 async function sendSafetySubmission({ foremanName, project, submissionType, date, workersOnSite, fields, pdfBuffer, pdfName, photos }) {
@@ -194,20 +205,17 @@ async function sendCSOEmail({ csoEmail, csoName, foremanName, project, submissio
     });
   }
 
-  const resend = getResend();
-  const result = await resend.emails.send({
-    from: 'Trademark Safety <onboarding@resend.dev>',
-    to: [csoEmail],
+  const transport = getGmailTransport();
+  await transport.sendMail({
+    from: `Trademark Safety <${process.env.EMAIL_USER}>`,
+    to: csoEmail,
     subject: `Safety Form – ${formLabel} – ${project} (${date})`,
     html,
-    attachments,
+    attachments: attachments.map(a => ({
+      filename: a.filename,
+      content: Buffer.from(a.content, 'base64'),
+    })),
   });
-
-  if (result.error) {
-    throw new Error(result.error.message || 'Resend API error');
-  }
-
-  return result;
 }
 
 async function testConnection() {
