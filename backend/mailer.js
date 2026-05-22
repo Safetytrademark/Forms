@@ -140,8 +140,6 @@ async function sendSafetySubmission({ foremanName, project, submissionType, date
 }
 
 async function sendCSOEmail({ csoEmail, csoName, foremanName, project, submissionType, date, pdfBuffer, pdfName }) {
-  const resend = getResend();
-
   const greeting = csoName ? `Hi ${csoName},` : 'Hi,';
   const formLabel = submissionType || 'Safety Form';
 
