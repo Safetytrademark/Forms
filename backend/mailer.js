@@ -9,20 +9,114 @@ async function sendSafetySubmission({ foremanName, project, submissionType, date
 
   const parsedFields = typeof fields === 'string' ? JSON.parse(fields) : (fields || {});
 
-  const fieldRows = Object.entries(parsedFields)
-    .filter(([, v]) => v && (Array.isArray(v) ? v.length > 0 : String(v).trim() !== ''))
-    .map(([k, v]) => {
-      const label = k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-      const value = Array.isArray(v) ? v.join(' • ') : String(v);
-      return `
-        <tr>
-          <td style="padding:10px 14px;background:#fafafa;font-weight:600;color:#666;
-                     font-size:12px;text-transform:uppercase;letter-spacing:0.04em;
-                     border-bottom:1px solid #eee;width:38%;vertical-align:top">${label}</td>
-          <td style="padding:10px 14px;color:#222;font-size:14px;
-                     border-bottom:1px solid #eee;line-height:1.5">${value}</td>
-        </tr>`;
+  // ── Field renderers ────────────────────────────────────────────────────────
+  const CELL_LABEL = `padding:10px 14px;background:#fafafa;font-weight:600;color:#666;font-size:12px;text-transform:uppercase;letter-spacing:0.04em;border-bottom:1px solid #eee;width:38%;vertical-align:top`;
+  const CELL_VALUE = `padding:10px 14px;color:#222;font-size:14px;border-bottom:1px solid #eee;line-height:1.6;vertical-align:top`;
+  const TH = `padding:7px 10px;background:#f0f0f0;font-size:11px;font-weight:700;text-transform:uppercase;color:#555;text-align:center;border:1px solid #ddd;white-space:nowrap`;
+  const TD = `padding:7px 10px;font-size:13px;text-align:center;border:1px solid #ddd`;
+
+  function labelOf(k) {
+    return k.replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  }
+
+  function simpleRow(k, html) {
+    return `<tr><td style="${CELL_LABEL}">${labelOf(k)}</td><td style="${CELL_VALUE}">${html}</td></tr>`;
+  }
+
+  function renderTimesheetRows(employees) {
+    const days = ['mon','tue','wed','thu','fri','sat','sun'];
+    const dayLabels = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+    const thead = `<tr><th style="${TH};text-align:left;width:30%">Employee</th>${dayLabels.map(d=>`<th style="${TH}">${d}<br><small style="color:#888;font-weight:400">R / OT</small></th>`).join('')}<th style="${TH}">Total R</th><th style="${TH}">Total OT</th></tr>`;
+    const tbody = employees.map(emp => {
+      let totalR = 0, totalOT = 0;
+      const dayCells = days.map(d => {
+        const r = parseFloat(emp.days?.[d]?.r) || 0;
+        const ot = parseFloat(emp.days?.[d]?.ot) || 0;
+        totalR += r; totalOT += ot;
+        const rStr = r > 0 ? r : '—';
+        const otStr = ot > 0 ? `<span style="color:#ef4444">${ot}</span>` : '—';
+        return `<td style="${TD}">${rStr} / ${otStr}</td>`;
+      }).join('');
+      return `<tr><td style="${TD};text-align:left;font-weight:600">${emp.name || '—'}</td>${dayCells}<td style="${TD};font-weight:700;color:#1a2e4a">${totalR}</td><td style="${TD};font-weight:700;color:#ef4444">${totalOT || '—'}</td></tr>`;
     }).join('');
+    return `<tr><td colspan="2" style="padding:0;border-bottom:1px solid #eee">
+      <div style="${CELL_LABEL};border-bottom:1px solid #eee">Timesheet</div>
+      <div style="overflow-x:auto;padding:10px 14px">
+        <table style="width:100%;border-collapse:collapse">${thead}${tbody}</table>
+      </div></td></tr>`;
+  }
+
+  function renderFlraRows(tasks) {
+    const included = tasks.filter(t => t.included !== false);
+    if (!included.length) return '';
+    const riskColor = { high:'#ef4444', medium:'#f59e0b', low:'#10b981' };
+    const rows = included.map(t => {
+      const rc = riskColor[(t.riskLevel||'low').toLowerCase()] || '#888';
+      const hazards = Array.isArray(t.hazards) ? t.hazards.filter(Boolean).join(', ') : (t.hazards || '');
+      return `<tr>
+        <td style="${TD};text-align:left;font-weight:600">${t.task || '—'}</td>
+        <td style="${TD}"><span style="color:${rc};font-weight:700">${t.riskLevel || '—'}</span></td>
+        <td style="${TD};text-align:left;color:#555">${hazards || '—'}</td>
+        <td style="${TD};text-align:left;color:#333">${t.controls || '—'}</td>
+      </tr>`;
+    }).join('');
+    const thead = `<tr><th style="${TH};text-align:left">Task</th><th style="${TH}">Risk</th><th style="${TH};text-align:left">Hazards</th><th style="${TH};text-align:left">Controls</th></tr>`;
+    return `<tr><td colspan="2" style="padding:0;border-bottom:1px solid #eee">
+      <div style="${CELL_LABEL};border-bottom:1px solid #eee">FLRA Tasks (${included.length})</div>
+      <div style="overflow-x:auto;padding:10px 14px">
+        <table style="width:100%;border-collapse:collapse">${thead}${rows}</table>
+      </div></td></tr>`;
+  }
+
+  function renderCrewSignin(members) {
+    const names = members.map((m, i) => `<span style="display:inline-block;background:#f0f0f0;border-radius:20px;padding:3px 12px;font-size:13px;margin:3px">${m.name || `Worker ${i+1}`}</span>`).join('');
+    return names;
+  }
+
+  function renderChecklist(obj) {
+    return Object.entries(obj).map(([label, checked]) => {
+      const icon = checked ? `<span style="color:#10b981;font-weight:700">✓</span>` : `<span style="color:#ccc">○</span>`;
+      return `<span style="display:inline-block;margin:3px 10px 3px 0;white-space:nowrap;font-size:13px">${icon} ${label}</span>`;
+    }).join('');
+  }
+
+  function renderFieldRow(k, v) {
+    if (v === null || v === undefined || v === '') return '';
+    if (typeof v === 'string' && v.startsWith('data:')) return ''; // skip base64 sigs
+
+    // Timesheet: array of {name, days:{mon:{r,ot},...}}
+    if (Array.isArray(v) && v[0]?.days && typeof v[0].days === 'object') {
+      return renderTimesheetRows(v);
+    }
+    // FLRA: array of {task, riskLevel, hazards, controls, included}
+    if (Array.isArray(v) && v.length && 'task' in (v[0] || {})) {
+      return renderFlraRows(v);
+    }
+    // Crew sign-in: array of {name, sig}
+    if (Array.isArray(v) && v.length && 'sig' in (v[0] || {})) {
+      const html = renderCrewSignin(v);
+      return html ? simpleRow(k, html) : '';
+    }
+    // Checklist object: {label: boolean}
+    if (v && typeof v === 'object' && !Array.isArray(v) && Object.values(v).some(x => typeof x === 'boolean')) {
+      const html = renderChecklist(v);
+      return html ? simpleRow(k, html) : '';
+    }
+    // Simple array of strings
+    if (Array.isArray(v)) {
+      const str = v.filter(x => x && typeof x !== 'object').join(' • ');
+      return str ? simpleRow(k, str) : '';
+    }
+    // Plain string/number
+    const str = String(v).trim();
+    return str ? simpleRow(k, str.replace(/\n/g, '<br>')) : '';
+  }
+
+  const skipKeys = ['signature', 'sig'];
+  const fieldRows = Object.entries(parsedFields)
+    .filter(([k, v]) => !skipKeys.includes(k) && v !== null && v !== undefined && v !== '')
+    .map(([k, v]) => renderFieldRow(k, v))
+    .join('');
 
   const typeColors = {
     'Daily Tailgate':    '#f59e0b',
