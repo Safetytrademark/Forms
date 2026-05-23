@@ -80,41 +80,163 @@ async function sendSafetySubmission({ foremanName, project, submissionType, date
     }).join('');
   }
 
+  // Daily inspection: { sectionName: { itemText: 'ok'|'x'|null } }
+  function renderDailyInspectionHtml(k) {
+    const sections = parsedFields[k];
+    let html = '';
+    for (const [secName, items] of Object.entries(sections)) {
+      const rows = Object.entries(items).map(([item, status]) => {
+        const icon = status === 'ok'
+          ? `<span style="color:#10b981;font-weight:700">✓</span>`
+          : status === 'x'
+          ? `<span style="color:#ef4444;font-weight:700">✗</span>`
+          : `<span style="color:#ccc">—</span>`;
+        return `<tr><td style="${TD};text-align:left;width:30px">${icon}</td><td style="${TD};text-align:left">${item}</td></tr>`;
+      }).join('');
+      html += `<div style="margin-bottom:12px">
+        <div style="font-weight:700;font-size:12px;text-transform:uppercase;color:#555;letter-spacing:.04em;padding:6px 0;border-bottom:1px solid #eee;margin-bottom:4px">${secName}</div>
+        <table style="width:100%;border-collapse:collapse">${rows}</table>
+      </div>`;
+    }
+    return `<tr><td colspan="2" style="padding:0;border-bottom:1px solid #eee">
+      <div style="${CELL_LABEL};border-bottom:1px solid #eee">${labelOf(k)}</div>
+      <div style="padding:12px 14px">${html}</div></td></tr>`;
+  }
+
+  // Toolbox hazard review: [{hazard, risk, control, included}]
+  function renderToolboxHazardsHtml(k, v) {
+    const included = v.filter(r => r.included && (r.hazard || r.risk || r.control));
+    if (!included.length) return '';
+    const riskColor = { high:'#ef4444', medium:'#f59e0b', low:'#10b981' };
+    const thead = `<tr><th style="${TH};text-align:left">Hazard</th><th style="${TH}">Risk</th><th style="${TH};text-align:left">Control</th></tr>`;
+    const rows = included.map(r => {
+      const rc = riskColor[(r.risk||'').toLowerCase()] || '#888';
+      return `<tr>
+        <td style="${TD};text-align:left">${r.hazard || '—'}</td>
+        <td style="${TD}"><span style="color:${rc};font-weight:700">${r.risk || '—'}</span></td>
+        <td style="${TD};text-align:left">${r.control || '—'}</td>
+      </tr>`;
+    }).join('');
+    return `<tr><td colspan="2" style="padding:0;border-bottom:1px solid #eee">
+      <div style="${CELL_LABEL};border-bottom:1px solid #eee">${labelOf(k)} (${included.length})</div>
+      <div style="overflow-x:auto;padding:10px 14px">
+        <table style="width:100%;border-collapse:collapse">${thead}${rows}</table>
+      </div></td></tr>`;
+  }
+
+  // Production table: { blocks: { blockType: { mon,tue,...} }, crew: {...} }
+  function renderProductionHtml(k, v) {
+    const days = ['mon','tue','wed','thu','fri','sat','sun'];
+    const dayLabels = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+    let html = '';
+    if (v.blocks) {
+      const blockRows = Object.entries(v.blocks).map(([type, dayVals]) => {
+        const total = days.reduce((s, d) => s + (parseFloat(dayVals[d]) || 0), 0);
+        if (!total) return '';
+        const cells = days.map(d => `<td style="${TD}">${dayVals[d] || '—'}</td>`).join('');
+        return `<tr><td style="${TD};text-align:left;font-weight:600">${type}</td>${cells}<td style="${TD};font-weight:700">${total}</td></tr>`;
+      }).filter(Boolean).join('');
+      if (blockRows) {
+        const thead = `<tr><th style="${TH};text-align:left">Block</th>${dayLabels.map(d=>`<th style="${TH}">${d}</th>`).join('')}<th style="${TH}">Total</th></tr>`;
+        html += `<div style="font-weight:700;font-size:12px;color:#555;text-transform:uppercase;letter-spacing:.04em;padding:4px 0 6px">Block Placement</div>
+          <div style="overflow-x:auto;margin-bottom:12px"><table style="width:100%;border-collapse:collapse">${thead}${blockRows}</table></div>`;
+      }
+    }
+    if (v.crew) {
+      const crewRows = Object.entries(v.crew).map(([type, dayVals]) => {
+        const total = days.reduce((s, d) => s + (parseFloat(dayVals[d]) || 0), 0);
+        if (!total) return '';
+        const cells = days.map(d => `<td style="${TD}">${dayVals[d] || '—'}</td>`).join('');
+        return `<tr><td style="${TD};text-align:left;font-weight:600">${type}</td>${cells}<td style="${TD};font-weight:700">${total}</td></tr>`;
+      }).filter(Boolean).join('');
+      if (crewRows) {
+        const thead = `<tr><th style="${TH};text-align:left">Crew</th>${dayLabels.map(d=>`<th style="${TH}">${d}</th>`).join('')}<th style="${TH}">Total</th></tr>`;
+        html += `<div style="font-weight:700;font-size:12px;color:#555;text-transform:uppercase;letter-spacing:.04em;padding:4px 0 6px">Crew Count</div>
+          <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">${thead}${crewRows}</table></div>`;
+      }
+    }
+    if (!html) return '';
+    return `<tr><td colspan="2" style="padding:0;border-bottom:1px solid #eee">
+      <div style="${CELL_LABEL};border-bottom:1px solid #eee">${labelOf(k)}</div>
+      <div style="padding:12px 14px">${html}</div></td></tr>`;
+  }
+
+  // QAQC: [{result:'pass'|'fail'|'na'|null, comment:''}]
+  function renderQaqcHtml(k, v) {
+    const pass = v.filter(r => r.result === 'pass').length;
+    const fail = v.filter(r => r.result === 'fail').length;
+    const na   = v.filter(r => r.result === 'na').length;
+    const total = v.length;
+    const failItems = v.map((r, i) => r.result === 'fail'
+      ? `<div style="font-size:13px;color:#ef4444;padding:2px 0">✗ Item ${i+1}${r.comment ? ` — ${r.comment}` : ''}</div>`
+      : '').filter(Boolean).join('');
+    const summary = `<span style="color:#10b981;font-weight:700">✓ ${pass} Pass</span>
+      &nbsp;&nbsp;<span style="color:#ef4444;font-weight:700">✗ ${fail} Fail</span>
+      &nbsp;&nbsp;<span style="color:#888">— ${na} N/A</span>
+      &nbsp;&nbsp;<span style="color:#aaa;font-size:12px">(${total} items)</span>`;
+    return simpleRow(k, summary + (failItems ? `<div style="margin-top:8px">${failItems}</div>` : ''));
+  }
+
   function renderFieldRow(k, v) {
     if (v === null || v === undefined || v === '') return '';
-    if (typeof v === 'string' && v.startsWith('data:')) return ''; // skip base64 sigs
+    if (k.startsWith('_')) return '';                              // section headers
+    if (typeof v === 'string' && v.startsWith('data:')) return ''; // base64 sigs
 
-    // Timesheet: array of {name, days:{mon:{r,ot},...}}
-    if (Array.isArray(v) && v[0]?.days && typeof v[0].days === 'object') {
+    // Timesheet: [{name, days:{mon:{r,ot},...}}]
+    if (Array.isArray(v) && v[0]?.days && typeof v[0].days === 'object')
       return renderTimesheetRows(v);
-    }
-    // FLRA: array of {task, riskLevel, hazards, controls, included}
-    if (Array.isArray(v) && v.length && 'task' in (v[0] || {})) {
+
+    // FLRA: [{task, riskLevel, hazards, controls, included}]
+    if (Array.isArray(v) && v.length && 'task' in (v[0] || {}))
       return renderFlraRows(v);
-    }
-    // Crew sign-in: array of {name, sig}
+
+    // Toolbox hazard review: [{hazard, risk, control, included}]
+    if (Array.isArray(v) && v.length && 'hazard' in (v[0] || {}))
+      return renderToolboxHazardsHtml(k, v);
+
+    // Crew sign-in: [{name, sig}]
     if (Array.isArray(v) && v.length && 'sig' in (v[0] || {})) {
       const html = renderCrewSignin(v);
       return html ? simpleRow(k, html) : '';
     }
-    // Checklist object: {label: boolean}
-    if (v && typeof v === 'object' && !Array.isArray(v) && Object.values(v).some(x => typeof x === 'boolean')) {
-      const html = renderChecklist(v);
-      return html ? simpleRow(k, html) : '';
-    }
-    // Simple array of strings
+
+    // QAQC: [{result, comment}]
+    if (Array.isArray(v) && v.length && 'result' in (v[0] || {}))
+      return renderQaqcHtml(k, v);
+
+    // Simple array of strings (checkbox-group)
     if (Array.isArray(v)) {
       const str = v.filter(x => x && typeof x !== 'object').join(' • ');
       return str ? simpleRow(k, str) : '';
     }
+
+    if (v && typeof v === 'object') {
+      // Production table: {blocks:{...}, crew:{...}}
+      if ('blocks' in v || 'crew' in v)
+        return renderProductionHtml(k, v);
+
+      // Daily inspection: { sectionName: { itemText: 'ok'|'x'|null } }
+      const vals = Object.values(v);
+      if (vals.length && vals[0] && typeof vals[0] === 'object' && !Array.isArray(vals[0]))
+        return renderDailyInspectionHtml(k);
+
+      // Boolean checklist: {label: boolean}
+      if (vals.some(x => typeof x === 'boolean')) {
+        const html = renderChecklist(v);
+        return html ? simpleRow(k, html) : '';
+      }
+
+      return '';
+    }
+
     // Plain string/number
     const str = String(v).trim();
     return str ? simpleRow(k, str.replace(/\n/g, '<br>')) : '';
   }
 
-  const skipKeys = ['signature', 'sig'];
+  const skipKeys = new Set(['signature', 'sig']);
   const fieldRows = Object.entries(parsedFields)
-    .filter(([k, v]) => !skipKeys.includes(k) && v !== null && v !== undefined && v !== '')
+    .filter(([k, v]) => !skipKeys.has(k) && v !== null && v !== undefined && v !== '')
     .map(([k, v]) => renderFieldRow(k, v))
     .join('');
 
