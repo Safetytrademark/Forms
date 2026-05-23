@@ -1,20 +1,7 @@
 const { Resend } = require('resend');
-const nodemailer = require('nodemailer');
 
 function getResend() {
   return new Resend(process.env.RESEND_API_KEY);
-}
-
-function getGmailTransport() {
-  return nodemailer.createTransport({
-    service: 'gmail',
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS,
-    },
-    connectionTimeout: 15000,
-    socketTimeout: 15000,
-  });
 }
 
 async function sendSafetySubmission({ foremanName, project, submissionType, date, workersOnSite, fields, pdfBuffer, pdfName, photos }) {
@@ -207,17 +194,27 @@ async function sendCSOEmail({ csoEmail, csoName, foremanName, project, submissio
     });
   }
 
-  const transport = getGmailTransport();
-  await transport.sendMail({
-    from: `Trademark Safety <${process.env.EMAIL_USER}>`,
-    to: csoEmail,
+  const BREVO_KEY = process.env.BREVO_API_KEY;
+  if (!BREVO_KEY) throw new Error('BREVO_API_KEY not set');
+
+  const payload = {
+    sender: { name: 'Trademark Safety', email: process.env.EMAIL_USER || 'safetytrademark@gmail.com' },
+    to: [{ email: csoEmail, name: csoName || csoEmail }],
     subject: `Safety Form – ${formLabel} – ${project} (${date})`,
-    html,
-    attachments: attachments.map(a => ({
-      filename: a.filename,
-      content: Buffer.from(a.content, 'base64'),
-    })),
+    htmlContent: html,
+    attachment: attachments.map(a => ({ content: a.content, name: a.filename })),
+  };
+
+  const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+    method: 'POST',
+    headers: { 'api-key': BREVO_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
   });
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Brevo error: ${err}`);
+  }
 }
 
 async function testConnection() {
